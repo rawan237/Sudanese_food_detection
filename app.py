@@ -58,7 +58,11 @@ HTML_PAGE = """
       {% if detections %}
         {% for d in detections %}
           <div class="det-row">
-            <span>{{ d.name }}</span>
+            <!-- التعديل هنا: خلينا الاسم والإحداثيات تحت بعض بترتيب -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span>{{ d.name }}</span>
+              <span style="font-size: 11.5px; color: #888;">Coords: [X1: {{ d.x1 }}, Y1: {{ d.y1 }}, X2: {{ d.x2 }}, Y2: {{ d.y2 }}]</span>
+            </div>
             <span class="badge {{ d.conf_class }}">{{ d.confidence }}%</span>
           </div>
         {% endfor %}
@@ -83,16 +87,27 @@ def index():
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(UPLOAD_FOLDER, f'{timestamp}_{file.filename}')
+        
+        original_filename = f'{timestamp}_original_{file.filename}'
+        save_path = os.path.join(UPLOAD_FOLDER, original_filename)
         cv2.imwrite(save_path, img)
 
         results = model.predict(img, conf=0.5, verbose=False)
         annotated_img = results[0].plot()
 
+        annotated_filename = f'{timestamp}_detected.jpg'
+        annotated_save_path = os.path.join(UPLOAD_FOLDER, annotated_filename)
+        cv2.imwrite(annotated_save_path, annotated_img)
+
+        labels_data = []
+
         for box in results[0].boxes:
             class_id = int(box.cls[0])
             class_name = model.names[class_id]
             confidence = float(box.conf[0]) * 100
+            
+            # استخراج الإحداثيات
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
 
             if confidence >= 80:
                 conf_class = 'high-conf'
@@ -101,11 +116,28 @@ def index():
             else:
                 conf_class = 'low-conf'
 
+            # تمرير الإحداثيات للواجهة
             detections.append({
                 'name': class_name,
                 'confidence': round(confidence, 1),
-                'conf_class': conf_class
+                'conf_class': conf_class,
+                'x1': int(x1),
+                'y1': int(y1),
+                'x2': int(x2),
+                'y2': int(y2)
             })
+            
+            labels_data.append(f"Label: {class_name}, Confidence: {round(confidence, 1)}%")
+
+        txt_filename = f'{timestamp}_labels.txt'
+        txt_save_path = os.path.join(UPLOAD_FOLDER, txt_filename)
+        
+        with open(txt_save_path, 'w', encoding='utf-8') as f:
+            if labels_data:
+                for label in labels_data:
+                    f.write(label + '\n')
+            else:
+                f.write("No food detected\n")
 
         _, buffer = cv2.imencode('.jpg', annotated_img)
         result_image = base64.b64encode(buffer).decode('utf-8')
